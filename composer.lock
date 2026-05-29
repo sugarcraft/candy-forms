@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7d7f854b612c2106c107719fb1959c1e",
+    "content-hash": "08387fa1550e30c3104e95725ff29122",
     "packages": [
         {
             "name": "react/event-loop",
@@ -222,6 +222,117 @@
             }
         },
         {
+            "name": "sugarcraft/candy-fuzzy",
+            "version": "dev-master",
+            "dist": {
+                "type": "path",
+                "url": "../candy-fuzzy",
+                "reference": "bc4d6a089688caa31732edfb67835ad110ef4c57"
+            },
+            "require": {
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^10.5"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SugarCraft\\Fuzzy\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "SugarCraft\\Fuzzy\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Joe Huss",
+                    "email": "detain@interserver.net",
+                    "role": "Maintainer"
+                }
+            ],
+            "description": "Fuzzy string matching with scored matched indices — Smith-Waterman + Sahilm algorithms. Unblocks filter-highlighting UI across the ecosystem.",
+            "homepage": "https://github.com/sugarcraft/candy-fuzzy",
+            "keywords": [
+                "charmbracelet",
+                "filter",
+                "fuzzy",
+                "gum",
+                "matching",
+                "search",
+                "sugarcraft"
+            ],
+            "support": {
+                "issues": "https://github.com/sugarcraft/candy-fuzzy/issues",
+                "source": "https://github.com/sugarcraft/candy-fuzzy",
+                "docs": "https://github.com/sugarcraft/candy-fuzzy/blob/master/README.md"
+            },
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "sugarcraft/candy-layout",
+            "version": "dev-master",
+            "dist": {
+                "type": "path",
+                "url": "../candy-layout",
+                "reference": "6bb06cb08328a655672bdf569a829a1c664cba02"
+            },
+            "require": {
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^10.5"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SugarCraft\\Layout\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "SugarCraft\\Layout\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Joe Huss",
+                    "email": "detain@interserver.net",
+                    "role": "Maintainer"
+                }
+            ],
+            "description": "Constraint-based layout solver (Cassowary simplex + greedy fallback)",
+            "homepage": "https://github.com/sugarcraft/candy-layout",
+            "keywords": [
+                "cassowary",
+                "constraint-solver",
+                "layout",
+                "ratatui",
+                "sugarcraft",
+                "terminal"
+            ],
+            "support": {
+                "issues": "https://github.com/sugarcraft/candy-layout/issues",
+                "source": "https://github.com/sugarcraft/candy-layout/tree/master",
+                "docs": "https://github.com/sugarcraft/candy-layout/blob/master/README.md"
+            },
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "sugarcraft/candy-pty",
             "version": "dev-master",
             "source": {
@@ -294,11 +405,12 @@
             "dist": {
                 "type": "path",
                 "url": "../candy-sprinkles",
-                "reference": "ccbc898a7e28f72b5a32bc8e2e89fbf08070645a"
+                "reference": "b5aec052ce7e05decdde6bd9cd5b6a936d277784"
             },
             "require": {
                 "php": "^8.3",
-                "sugarcraft/candy-core": "dev-master"
+                "sugarcraft/candy-core": "dev-master",
+                "sugarcraft/candy-layout": "dev-master"
             },
             "require-dev": {
                 "phpunit/phpunit": "^10.5"
@@ -2026,6 +2138,7 @@
     "minimum-stability": "dev",
     "stability-flags": {
         "sugarcraft/candy-core": 20,
+        "sugarcraft/candy-fuzzy": 20,
         "sugarcraft/candy-sprinkles": 20
     },
     "prefer-stable": true,
