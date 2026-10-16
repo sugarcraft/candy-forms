@@ -1,0 +1,238 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SugarCraft\Forms\Tests\TextInput;
+
+use SugarCraft\Forms\TextInput\TextInput;
+use SugarCraft\Core\KeyType;
+use SugarCraft\Core\Msg\KeyMsg;
+use PHPUnit\Framework\TestCase;
+
+final class RestrictTest extends TestCase
+{
+    private function focused(?string $initial = null): TextInput
+    {
+        $t = TextInput::new();
+        if ($initial !== null) {
+            $t = $t->setValue($initial);
+        }
+        [$t, ] = $t->focus();
+        return $t;
+    }
+
+    // ---- withRestrict() -------------------------------------------------
+
+    public function testWithRestrictReturnsNewInstance(): void
+    {
+        $t = TextInput::new();
+        $t2 = $t->withRestrict('[a-z]');
+        $this->assertNotSame($t, $t2);
+        $this->assertSame('[a-z]', $t2->restrict);
+    }
+
+    public function testRestrictDefaultIsEmpty(): void
+    {
+        $t = TextInput::new();
+        $this->assertSame('', $t->restrict);
+    }
+
+    // ---- Restriction behavior -------------------------------------------
+
+    public function testRestrictAcceptsMatchingCharacters(): void
+    {
+        $t = $this->focused()->withRestrict('[a-z]');
+
+        // 'a' matches [a-z]
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'a'));
+        $this->assertSame('a', $t->value);
+        $this->assertSame(1, $t->cursorPos);
+    }
+
+    public function testRestrictRejectsNonMatchingCharacters(): void
+    {
+        $t = $this->focused()->withRestrict('[a-z]');
+
+        // '1' does NOT match [a-z]
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '1'));
+        $this->assertSame('', $t->value);
+        $this->assertSame(0, $t->cursorPos);
+    }
+
+    public function testRestrictDigitsOnly(): void
+    {
+        $t = $this->focused()->withRestrict('[0-9]');
+
+        // Type some digits and non-digits
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '1'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'a')); // rejected
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '2'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '#')); // rejected
+
+        $this->assertSame('12', $t->value);
+    }
+
+    public function testRestrictAlphanumericOnly(): void
+    {
+        $t = $this->focused()->withRestrict('[a-zA-Z0-9]');
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'H'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'e'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '!'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '1'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '0'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '0'));
+
+        $this->assertSame('He100', $t->value);
+    }
+
+    public function testRestrictEmptyPatternAcceptsAll(): void
+    {
+        $t = $this->focused()->withRestrict('');
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'a'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '1'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '#'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, ' '));
+
+        $this->assertSame('a1# ', $t->value);
+    }
+
+    public function testRestrictAppliedBeforeCharLimit(): void
+    {
+        // Even though charLimit is 3, 'abc' (3 chars) gets in but 'd' doesn't
+        // because restrict filters before limit check
+        $t = $this->focused()->withRestrict('[a-c]')->withCharLimit(3);
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'a'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'b'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'c'));
+        // 'd' is rejected by restrict before reaching charLimit
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'd'));
+
+        $this->assertSame('abc', $t->value);
+    }
+
+    public function testRestrictWithMultibyteCharacters(): void
+    {
+        $t = $this->focused()->withRestrict('[a-zA-Z]');
+
+        // Multibyte chars should be rejected by [a-zA-Z] since they don't match
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '日'));
+        $this->assertSame('', $t->value);
+    }
+
+    public function testRestrictDigitsPassesMultibyteThrough(): void
+    {
+        // If pattern matches only ASCII, multibyte should be rejected
+        $t = $this->focused()->withRestrict('[0-9]');
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '日'));
+        $this->assertSame('', $t->value);
+    }
+
+    public function testRestrictWithVimMode(): void
+    {
+        $t = $this->focused()->withRestrict('[a-z]')->withVimMode(true);
+
+        // Enter insert mode first
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'i'));
+
+        // Now type - only lowercase letters should be accepted
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'h'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '1'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'e'));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, '!'));
+
+        // Only 'he' should be in the buffer
+        $this->assertSame('he', $t->value);
+    }
+
+    public function testRestrictDoesNotAffectSetValue(): void
+    {
+        // setValue bypasses restrict - it's a programmatic set, not keystroke
+        $t = TextInput::new()->withRestrict('[a-z]');
+        $t = $t->setValue('ABC123!');
+        $this->assertSame('ABC123!', $t->value);
+    }
+
+    public function testRestrictWithBackspace(): void
+    {
+        $t = $this->focused('abc')->withRestrict('[a-z]');
+
+        // Backspace should still work even when restrict is set
+        [$t, ] = $t->update(new KeyMsg(KeyType::Backspace));
+        $this->assertSame('ab', $t->value);
+        $this->assertSame(2, $t->cursorPos);
+    }
+
+    public function testRestrictWithDelete(): void
+    {
+        $t = $this->focused('abc')->withRestrict('[a-z]');
+        [$t, ] = $t->update(new KeyMsg(KeyType::Home));
+        [$t, ] = $t->update(new KeyMsg(KeyType::Delete));
+        $this->assertSame('bc', $t->value);
+    }
+
+    public function testRestrictPatternIsAnchoredPerCharacter(): void
+    {
+        // Pattern [a-z] matches single char against [a-z], not the whole string
+        $t = $this->focused()->withRestrict('[a-z]');
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'a'));
+        $this->assertSame('a', $t->value);
+
+        [$t, ] = $t->update(new KeyMsg(KeyType::Char, 'B')); // uppercase rejected
+        $this->assertSame('a', $t->value);
+    }
+
+    /**
+     * Step 10: withRestrict() validates the regex eagerly at construction time.
+     * A slash in the pattern (unintended delimiter) must throw, not silently
+     * accept or reject all input.
+     */
+    public function testWithRestrictThrowsOnSlashInPattern(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        TextInput::new()->withRestrict('a/b');
+    }
+
+    /**
+     * Step 10: An unclosed character class bracket is an invalid PCRE pattern.
+     */
+    public function testWithRestrictThrowsOnUnclosedBracket(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        TextInput::new()->withRestrict('[');
+    }
+
+    /**
+     * E736 1.8: the validation call probes PCRE with an EMPTY subject — it
+     * tests compilation, never matching. A pattern that compiles but cannot
+     * match '' (like `.+`, which requires one character) must therefore be
+     * ACCEPTED and still filter keystrokes. Mutation: turning the guard into
+     * a match test (`!== 1`) or re-pointing the probe at a real subject with
+     * match-time semantics would falsely reject these rows.
+     *
+     * @dataProvider compileOnlyProbePatterns
+     */
+    public function testWithRestrictAcceptsPatternsThatCannotMatchEmptySubject(string $pattern, string $accepted, string $rejected): void
+    {
+        $t = $this->focused()->withRestrict($pattern);
+        $t = $t->withRestrict($pattern); // idempotent re-attach must not throw
+        [$t] = $t->update(new KeyMsg(KeyType::Char, $accepted));
+        $this->assertSame($accepted, $t->value);
+        [$t] = $t->update(new KeyMsg(KeyType::Char, $rejected));
+        $this->assertSame($accepted, $t->value, "pattern '{$pattern}' must reject '{$rejected}'");
+    }
+
+    /** @return array<string, array{0:string,1:string,2:string}> */
+    public static function compileOnlyProbePatterns(): array
+    {
+        return [
+            'word-required' => ['\w+', 'x', '!'],        // does not match ''
+            'anchors-out-of-reach' => ['^x$', 'x', 'y'], // '^x$' vs '' -> no match
+            'digits' => ['[0-9]', '5', 'a'],
+        ];
+    }
+}

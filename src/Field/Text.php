@@ -1,0 +1,225 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SugarCraft\Forms\Field;
+
+use SugarCraft\Core\Msg;
+use SugarCraft\Forms\AsyncValidatable;
+use SugarCraft\Forms\Field;
+use SugarCraft\Forms\CarriesNonCtorState;
+use SugarCraft\Forms\HasAsyncValidation;
+use SugarCraft\Forms\HasDynamicLabels;
+use SugarCraft\Forms\HasErrorHelp;
+use SugarCraft\Forms\HasHideFunc;
+use SugarCraft\Forms\HasReadonly;
+use SugarCraft\Forms\TextArea\TextArea;
+use SugarCraft\Forms\TextInput\ValidateOn;
+use SugarCraft\Forms\Util\RenderSafe;
+
+/**
+ * Multi-line text field. Wraps a {@see TextArea}; Enter inserts a newline
+ * inside the field rather than advancing the form, so the field declares
+ * itself a consumer of Enter via {@see consumes()}.
+ */
+final class Text implements \SugarCraft\Forms\Field, \SugarCraft\Forms\AsyncValidatable
+{
+    use HasAsyncValidation;
+    use HasErrorHelp;
+    use HasHideFunc;
+    use HasDynamicLabels;
+    use HasReadonly;
+    use CarriesNonCtorState;
+
+    /** @var (\Closure(string):?string)|null */
+    private $validator;
+
+    /**
+     * When the validator runs. Defaults to {@see ValidateOn::None}
+     * (validate on every keystroke) for backward compatibility. Blur/Submit
+     * defer validation to {@see blur()} / {@see revalidate()}.
+     */
+    private ValidateOn $validateOn = ValidateOn::None;
+
+    private function __construct(
+        public readonly string $key,
+        public readonly TextArea $area,
+        public readonly string $title,
+        public readonly string $description,
+        public readonly ?string $error,
+        ?\Closure $validator = null,
+        ValidateOn $validateOn = ValidateOn::None,
+    ) {
+        $this->validator = $validator;
+        $this->validateOn = $validateOn;
+    }
+
+    public static function new(string $key): self
+    {
+        return new self(
+            key: $key,
+            area: TextArea::new(),
+            title: '',
+            description: '',
+            error: null,
+        );
+    }
+
+    public function withTitle(string $t): self        { return $this->mutate(title: $t); }
+    public function withDescription(string $d): self  { return $this->mutate(description: $d); }
+    public function withPlaceholder(string $p): self  { return $this->mutate(area: $this->area->withPlaceholder($p)); }
+    /** Pre-fill the editable text (E736 5.9: the hydration setter). Pass an empty string to clear. */
+    public function withValue(string $value): self    { return $this->mutate(area: $this->area->setValue($value)); }
+    public function withCharLimit(int $n): self       { return $this->mutate(area: $this->area->withCharLimit($n)); }
+    public function withWidth(int $w): self           { return $this->mutate(area: $this->area->withWidth($w)); }
+    public function withHeight(int $h): self          { return $this->mutate(area: $this->area->withHeight($h)); }
+    /**
+     * E736 5.4 — rebind keys inside this field's input domain (row-relative
+     * semantics — see {@see \SugarCraft\Forms\TextArea\TextArea::keyOverrideActions()}).
+     *
+     * @param array<string,string> $map e.g. ['ctrl+u' => 'move_end']
+     */
+    public function withKeyOverrides(array $map): self { return $this->mutate(area: $this->area->withKeyOverrides($map)); }
+    /** The parsed override map carried by the inner widget. @return array<string,string> */
+    public function keyOverrides(): array              { return $this->area->keyOverrides(); }
+
+    /** @param \Closure(string):?string $fn */
+    public function withValidator(\Closure $fn): self
+    {
+        return $this->carryNonCtorState(new self($this->key, $this->area, $this->title, $this->description, $this->error, $fn, $this->validateOn));
+    }
+
+    /**
+     * Control WHEN the validator runs. Defaults to validate-on-every-keystroke.
+     * {@see ValidateOn::Blur} / {@see ValidateOn::Submit} defer validation to
+     * {@see blur()} / {@see revalidate()} so an expensive validator isn't paid
+     * on every keypress. Mirrors {@see Input::withValidateOn()}.
+     */
+    public function withValidateOn(ValidateOn $timing): self
+    {
+        return $this->carryNonCtorState(new self($this->key, $this->area, $this->title, $this->description, $this->error, $this->validator, $timing));
+    }
+
+    /**
+     * Attach a validation rule using a predicate + error message.
+     * The predicate receives the current value and returns true if valid,
+     * false if invalid. When invalid the $errorMessage is displayed.
+     */
+    public function withValidation(callable $predicate, string $errorMessage): self
+    {
+        return $this->withValidator(
+            static fn (string $value): ?string => $predicate($value) ? null : $errorMessage,
+        );
+    }
+
+    // Short-form aliases.
+    public function title(string $t): self        { return $this->withTitle($t); }
+    public function desc(string $d): self         { return $this->withDescription($d); }
+    public function placeholder(string $p): self  { return $this->withPlaceholder($p); }
+    public function charLimit(int $n): self       { return $this->withCharLimit($n); }
+    public function width(int $w): self           { return $this->withWidth($w); }
+    public function height(int $h): self          { return $this->withHeight($h); }
+    public function validator(\Closure $fn): self { return $this->withValidator($fn); }
+    public function validation(callable $predicate, string $errorMessage): self { return $this->withValidation($predicate, $errorMessage); }
+
+    public function key(): string  { return $this->key; }
+    public function value(): mixed { return $this->area->value(); }
+
+    public function focus(): array
+    {
+        [$a, $cmd] = $this->area->focus();
+        return [$this->mutate(area: $a), $cmd];
+    }
+
+    public function blur(): Field
+    {
+        $next = $this->mutate(area: $this->area->blur());
+        if ($this->validateOn === ValidateOn::Blur) {
+            $next = $next->validate();
+        }
+        return $next;
+    }
+
+    public function update(Msg $msg): array
+    {
+        // Read-only: refuse every buffer write — keys AND bracketed paste /
+        // external-editor results, which the inner TextArea applies directly.
+        if ($this->isReadonly() && self::isReadonlyMutatingMsg($msg)) {
+            return [$this, null];
+        }
+        [$a, $cmd] = $this->area->update($msg);
+        $next = $this->mutate(area: $a);
+        // Only validate per-keystroke for None/Change (default); Blur/Submit
+        // defer to blur()/revalidate() to avoid per-keystroke validator cost.
+        if ($this->validateOn === ValidateOn::None || $this->validateOn === ValidateOn::Change) {
+            $next = $next->validate();
+        }
+        return [$next, $cmd];
+    }
+
+    public function view(): string
+    {
+        $lines = [];
+        $title = $this->resolveTitle($this->title);
+        $desc  = $this->resolveDescription($this->description);
+        if ($title !== '') { $lines[] = $title . $this->readonlyTitleSuffix(); }
+        if ($desc  !== '') { $lines[] = $desc; }
+        $lines[] = $this->area->view();
+        // Validator messages can echo user input — clean at the display site.
+        if ($this->error !== null)     { $lines[] = '! ' . RenderSafe::clean($this->error); }
+        foreach ($this->errorHelpLines() as $helpLine) {
+            $lines[] = $helpLine;
+        }
+        return implode("\n", $lines);
+    }
+
+    public function isFocused(): bool        { return $this->area->focused; }
+    public function getTitle(): string       { return $this->resolveTitle($this->title); }
+    public function getDescription(): string { return $this->resolveDescription($this->description); }
+    public function getError(): ?string      { return $this->error; }
+    public function revalidate(): Field      { return $this->validate(); }
+    public function skippable(): bool        { return false; }
+
+    /**
+     * Enter inside a Text field inserts a newline rather than advancing
+     * the form. Up / Down move the inner cursor between lines and must
+     * not be hijacked by the form's between-field navigation.
+     */
+    public function consumes(Msg $msg): bool
+    {
+        if ($this->isReadonly()) {
+            return false;
+        }
+        if (!$this->area->focused || !$msg instanceof \SugarCraft\Core\Msg\KeyMsg) {
+            return false;
+        }
+        return $msg->type === \SugarCraft\Core\KeyType::Enter
+            || $msg->type === \SugarCraft\Core\KeyType::Up
+            || $msg->type === \SugarCraft\Core\KeyType::Down;
+    }
+
+    private function validate(): self
+    {
+        if ($this->validator === null) {
+            return $this;
+        }
+        $err = ($this->validator)($this->area->value());
+        if ($err === $this->error) {
+            return $this;
+        }
+        return $this->carryNonCtorState(new self($this->key, $this->area, $this->title, $this->description, $err, $this->validator, $this->validateOn));
+    }
+
+    private function mutate(?TextArea $area = null, ?string $title = null, ?string $description = null): self
+    {
+        return $this->carryNonCtorState(new self(
+            key:         $this->key,
+            area:        $area        ?? $this->area,
+            title:       $title       ?? $this->title,
+            description: $description ?? $this->description,
+            error:       $this->error,
+            validator:   $this->validator,
+            validateOn:  $this->validateOn,
+        ));
+    }
+}
